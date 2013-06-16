@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module System.Authenticate.SmbClient (
-    loginSmbClient
+    loginSmbClient,
+    SmbClientResult
     ) where
 
 import Control.Applicative
@@ -15,9 +16,14 @@ import System.Timeout
 
 commandName = "smbclient"
 
+-- |The login result type.
+--
+-- If success, return Right with actual username.
+type SmbClientResult = Either () Text
+
 -- |Authenticate with @smbclient@ command.
 --
--- Return True if login success, False otherwise.
+-- Return Right if login success, Left otherwise.
 --
 -- This does not accept empty username or password,
 -- because those has always been success as Guest login.
@@ -25,12 +31,12 @@ loginSmbClient :: Text -- ^ Server
                -> Text -- ^ Domain
                -> Text -- ^ Username
                -> Text -- ^ Password
-               -> IO Bool
+               -> IO SmbClientResult
 loginSmbClient server domain username password = do
     timedResult <- timeout (10 * 1000000) process
     case timedResult of
         Just result -> return result
-        Nothing     -> return False
+        Nothing     -> return $ Left ()
   where
     domain' = checkedText domain
     username' = checkedText username
@@ -45,17 +51,18 @@ loginSmbClient server domain username password = do
     process =
         case authInfo' of
             Just a -> validate commandName server a
-            _      -> return False
+                      $ Right (fromJust username')
+            _      -> return $ Left ()
 
-validate command server authInfo = do
+validate command server authInfo successInfo = do
     (exitCode, _, _) <-
         readProcessWithExitCode command [
             "-L", unpack server,
             "-A", "/dev/stdin"]
         authInfo
     case exitCode of
-        ExitSuccess -> return True
-        _           -> return False
+        ExitSuccess -> return successInfo
+        _           -> return $ Left ()
 
 -- |Returns valid words or Nothing.
 --
